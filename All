@@ -1,0 +1,616 @@
+library DamageSystem initializer Init requires Armor,japi,Dizzy
+//伤害系统基础必须变量
+globals
+    private hashtable HT_Damage=InitHashtable()
+    private trigger InitialTrigger
+    private group RecordFirst=CreateGroup()
+    
+    private integer Index=0
+    private integer Index_Basical=0 //基本事件索引
+    private trigger array RespondEvents_Basical
+    private integer Index_AttackCount=0 //护甲计算事件索引
+    private trigger array RespondEvents_AttackCount
+    private integer Index_Evade=0 //闪避事件索引
+    private trigger array RespondEvents_Evade
+    private integer Index_Violence=0 //暴力事件索引
+    private trigger array RespondEvents_Violence
+    private integer Index_PhysicalResist=0 //物理抵抗事件索引
+    private trigger array RespondEvents_PhysicalResist
+    private integer Index_ManaResist=0 //魔法抵抗事件索引
+    private trigger array RespondEvents_ManaResist
+    private integer Index_Suck=0 //吸血事件索引
+    private trigger array RespondEvents_Suck
+    private integer Index_End=0 //伤害处理结束事件索引
+    private trigger array RespondEvents_End
+
+    private unit array DamageSource
+    private unit array TriggerUnit
+    private integer array DamageSourceId
+    private integer array TriggerUnitId
+    private integer array Sign
+
+    private boolean array IsAttack
+    private boolean array IsFar
+    private boolean array IsPhysicalEvade
+    private boolean array IsManaEvade
+    private boolean array IsPhysicalCTS
+    private boolean array IsManaCTS
+    private boolean array IsThump
+    
+    private real array PhysicalAttack      //物理攻击力
+    private real array ManaAttack          //魔法攻击力
+    private real array PhysicalArmor       //单位物理护甲
+    private real array ManaArmor           //单位魔法护甲
+    private real array RealDamage          //真实伤害 0
+    private real array ManaDamage          //魔法伤害 2
+    private real array PhysicalDamage      //物理伤害 0
+    private real array SuckValue
+    
+    private real ArmorResist=0.01
+    private real Critical_Origin=2.0
+    private real Thump_Origin=50
+    //private real Dizzy_Origin=0.4
+endglobals
+//基础必须常量
+globals
+    //++
+    //constant integer ATTRIBUTE_THUMP_DAMAGE                 =   10        //重击附加伤害  +
+    //constant integer ATTRIBUTE_THUMP_DIZZY                  =   11        //重击眩晕时间  +
+    constant integer ATTRIBUTE_RESIST_REAL                  =   12        //真实抵抗      +
+    constant integer ATTRIBUTE_RESIST_PHYSICAL_VALUE        =   13        //物理固定抵抗  +
+    constant integer ATTRIBUTE_RESIST_MANA_VALUE            =   14        //魔法固定抵抗  +
+    constant integer ATTRIBUTE_SUCK_PHYSICIAL               =   15        //物理吸血      +
+    constant integer ATTRIBUTE_SUCK_MANA                    =   16        //魔法吸血      +
+    constant integer ATTRIBUTE_CRITICAL_PHYSICAL_TIMES      =   17        //物理暴击倍数  +
+    constant integer ATTRIBUTE_CRITICAL_MANA_TIMES          =   18        //魔法暴击倍数  +
+    //**
+    constant integer ATTRIBUTE_EVADE_PHYSICAL               =   20        //物理闪避几率  *
+    constant integer ATTRIBUTE_EVADE_MANA                   =   21        //魔法闪避几率  *
+    constant integer ATTRIBUTE_CRITICAL_PHYSICAL_CHANCE     =   22        //物理暴击几率  *
+    constant integer ATTRIBUTE_CRITICAL_MANA_CHANCE         =   23        //魔法暴击几率  *
+    //constant integer ATTRIBUTE_THUMP_CHANCE                 =   24        //重击几率      *
+    constant integer ATTRIBUTE_RESIST_PHYSICAL_PERCENT      =   24        //物理百分抵抗  *
+    constant integer ATTRIBUTE_RESIST_MANA_PERCENT          =   25        //魔法百分抵抗  *
+endglobals
+//伤害系统 
+//各类数据获取
+    function GetRealDamage takes nothing returns real
+        return Index:RealDamage
+    endfunction
+    function GetPhysicalDamage takes nothing returns real
+        return Index:PhysicalDamage
+    endfunction
+    function GetPhysicalAttack takes nothing returns real
+        return Index:PhysicalAttack
+    endfunction
+    function GetManaDamage takes nothing returns real
+        return Index:ManaDamage
+    endfunction
+    function GetDamageAll takes nothing returns real 
+        return Index:ManaDamage+Index:RealDamage+Index:PhysicalDamage
+    endfunction
+    function GetManaAttack takes nothing returns real
+        return Index:ManaAttack
+    endfunction
+    function GetPhysicalArmor takes nothing returns real
+        return Index:PhysicalArmor 
+    endfunction
+    function GetManaArmor takes nothing returns real
+        return Index:ManaArmor 
+    endfunction
+    function GetUnitAttribute takes unit u,integer AttributeType returns real
+        return LoadReal(HT_Damage,GetHandleId(u),AttributeType)
+    endfunction
+    function GetDamager takes nothing returns unit
+        return Index:DamageSource
+    endfunction
+    function GetDamaged takes nothing returns unit
+        return Index:TriggerUnit
+    endfunction
+    function GetDamageSign takes nothing returns integer 
+        return Index:Sign
+    endfunction 
+
+//
+//各类数据设定
+    function ExchangeDamager takes unit u returns nothing
+        set Index:DamageSource=u
+    endfunction
+    function SetRealDamage takes real r returns nothing
+        set Index:RealDamage=r
+    endfunction
+    function SetAttackDamage takes boolean b returns nothing
+        set Index:IsAttack=b
+    endfunction
+    function SetPhysicalDamage takes real r returns nothing
+        set Index:PhysicalDamage=r
+    endfunction
+    function SetPhysicalAttack takes real r returns nothing
+        set Index:PhysicalAttack=r
+    endfunction
+    function SetPhysicalCTS takes boolean b returns nothing
+        set Index:IsPhysicalCTS=b
+    endfunction
+    function SetManaDamage takes real r returns nothing
+        set Index:ManaDamage=r
+    endfunction
+    function SetManaAttack takes real r returns nothing
+        set Index:ManaAttack=r
+    endfunction
+    function SetPhysicalArmor  takes real r returns nothing
+        set Index:PhysicalArmor=r
+    endfunction
+    function SetManaCTS takes boolean b returns nothing
+        set Index:IsManaCTS=b
+    endfunction
+    function SetManaArmor takes real r returns nothing
+        set Index:ManaArmor=r
+    endfunction
+    function SetUnitAttribute takes unit u,integer AttributeType,real value returns nothing
+        local integer iTemp=GetHandleId(u)
+            call SaveReal(HT_Damage,iTemp,AttributeType,value)
+    endfunction
+//
+    /*function SetMultiboard takes unit u,integer AttributeType returns nothing
+        local integer i=GetPlayerId(GetOwningPlayer(u))+1
+            if u==udg_YX_7[i] then
+                if AttributeType==ATTRIBUTE_CRITICAL_PHYSICAL_CHANCE then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],2,1),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_CRITICAL_PHYSICAL_TIMES then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],2,3),R2SW((GetUnitAttribute(u,AttributeType)+Critical_Origin)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_CRITICAL_MANA_CHANCE then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],3,1),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_CRITICAL_MANA_TIMES then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],3,3),R2SW((GetUnitAttribute(u,AttributeType)+Critical_Origin)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_THUMP_CHANCE then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],4,1),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_THUMP_DAMAGE then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],4,3),R2SW(GetUnitAttribute(u,AttributeType)+Thump_Origin,1,1))
+                elseif AttributeType==ATTRIBUTE_THUMP_DIZZY then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],5,1),R2SW(GetUnitAttribute(u,AttributeType)+Dizzy_Origin,1,1)+"s")
+                elseif AttributeType==ATTRIBUTE_RESIST_REAL then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],5,3),R2SW(GetUnitAttribute(u,AttributeType),1,1))
+                elseif AttributeType==ATTRIBUTE_RESIST_PHYSICAL_VALUE then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],6,1),R2SW(GetUnitAttribute(u,AttributeType),1,1))
+                elseif AttributeType==ATTRIBUTE_RESIST_MANA_VALUE then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],6,3),R2SW(GetUnitAttribute(u,AttributeType),1,1))
+                elseif AttributeType==ATTRIBUTE_RESIST_PHYSICAL_PERCENT then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],7,1),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_RESIST_MANA_PERCENT then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],7,3),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_EVADE_PHYSICAL then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],8,1),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_EVADE_MANA then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],8,3),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_SUCK_PHYSICIAL then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],9,1),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                elseif AttributeType==ATTRIBUTE_SUCK_MANA then
+                    call MultiboardSetItemValue(MultiboardGetItem(udg_Multiboard[i],9,3),R2SW(GetUnitAttribute(u,AttributeType)*100.0,1,1)+"%")
+                endif
+            endif
+    endfunction
+    */
+//各类数据增加
+    function AddRealDamage takes real r returns nothing
+        set Index:RealDamage=Index:RealDamage+r
+    endfunction
+    function AddPhysicalDamage takes real r returns nothing
+        set Index:PhysicalDamage=Index:PhysicalDamage+r
+    endfunction
+    function AddPhysicalAttack takes real r returns nothing
+        set Index:PhysicalAttack=Index:PhysicalAttack+r
+    endfunction
+    function AddManaDamage takes real r returns nothing
+        set Index:ManaDamage=Index:ManaDamage+r
+    endfunction
+    function AddManaAttack takes real r returns nothing
+        set Index:ManaAttack=Index:ManaAttack+r
+    endfunction
+    function AddPhysicalArmor takes real r returns nothing
+        set Index:PhysicalArmor=Index:PhysicalArmor+r
+    endfunction
+    function AddManaArmor takes real r returns nothing
+        set Index:ManaArmor=Index:ManaArmor+r
+    endfunction
+    function AddUnitAttribute takes unit u,integer AttributeType,real value returns nothing
+        if AttributeType>=ATTRIBUTE_EVADE_PHYSICAL and AttributeType<=ATTRIBUTE_RESIST_MANA_PERCENT then
+            if value>.0 then
+                call SetUnitAttribute(u,AttributeType,1.0-(1.0-GetUnitAttribute(u,AttributeType))*(1.0-value))
+            elseif value<.0 then
+                call SetUnitAttribute(u,AttributeType,1.0-(1.0-GetUnitAttribute(u,AttributeType))/(1.0+value))
+            endif
+        elseif AttributeType>=ATTRIBUTE_RESIST_REAL and AttributeType<=ATTRIBUTE_CRITICAL_MANA_TIMES then
+            call SetUnitAttribute(u,AttributeType,GetUnitAttribute(u,AttributeType)+value)
+        endif
+        //call SetMultiboard(u,AttributeType)
+    endfunction
+    function AddSuckValue takes real value returns nothing
+        set Index:SuckValue=Index:SuckValue+value
+    endfunction
+//
+//各类布尔值返回
+    function IsAttackDamage takes nothing returns boolean
+        return Index:IsAttack
+    endfunction
+    function IsFarDamage takes nothing returns boolean
+        return Index:IsFar
+    endfunction
+    function IsPhysicalCTSDamage takes nothing returns boolean
+        return Index:IsPhysicalCTS
+    endfunction
+    function IsManaCTSDamage takes nothing returns boolean
+        return Index:IsManaCTS
+    endfunction
+    function IsThumpDamage takes nothing returns boolean
+        return Index:IsThump
+    endfunction
+    function IsPhysicalEvaded takes nothing returns boolean
+        return Index:IsPhysicalEvade
+    endfunction
+    function IsManaEvaded takes nothing returns boolean
+        return Index:IsManaEvade
+    endfunction
+//
+//各类事件注册
+    function RegisterAnyUnitGetDamage_Basical takes trigger trig returns nothing
+        if trig!=null then
+            set Index_Basical=Index_Basical+1
+            set Index_Basical:RespondEvents_Basical=trig
+        endif
+    endfunction
+    function RegisterAnyUnitGetDamage_AttackCount takes trigger trig returns nothing
+        if trig!=null then
+            set Index_AttackCount=Index_AttackCount+1
+            set Index_AttackCount:RespondEvents_AttackCount=trig
+        endif
+    endfunction
+    function RegisterAnyUnitGetDamage_Evade takes trigger trig returns nothing
+        if trig!=null then
+            set Index_Evade=Index_Evade+1
+            set Index_Evade:RespondEvents_Evade=trig
+        endif
+    endfunction
+    function RegisterAnyUnitGetDamage_Violence takes trigger trig returns nothing
+        if trig!=null then
+            set Index_Violence=Index_Violence+1
+            set Index_Violence:RespondEvents_Violence=trig
+        endif
+    endfunction
+    function RegisterAnyUnitGetDamage_PhysicalResist takes trigger trig returns nothing
+        if trig!=null then
+            set Index_PhysicalResist=Index_PhysicalResist+1
+            set Index_PhysicalResist:RespondEvents_PhysicalResist=trig
+        endif
+    endfunction
+    function RegisterAnyUnitGetDamage_ManaResist takes trigger trig returns nothing
+        if trig!=null then
+            set Index_ManaResist=Index_ManaResist+1
+            set Index_ManaResist:RespondEvents_ManaResist=trig
+        endif
+    endfunction
+    function RegisterAnyUnitGetDamage_Suck takes trigger trig returns nothing
+        if trig!=null then
+            set Index_Suck=Index_Suck+1
+            set Index_Suck:RespondEvents_Suck=trig
+        endif
+    endfunction
+    function RegisterAnyUnitGetDamage_End takes trigger trig returns nothing
+        if trig!=null then
+            set Index_End=Index_End+1
+            set Index_End:RespondEvents_End=trig
+        endif
+    endfunction
+//
+//各类事件触发
+private function OperationBasicalEvent takes nothing returns nothing
+    local integer iTemp=1
+    //处于初始触发,异常普通,所以可操作性极高
+    loop 
+    exitwhen iTemp>Index_Basical
+        if IsTriggerEnabled(iTemp:RespondEvents_Basical) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_Basical)
+        endif
+    set iTemp=iTemp+1
+    endloop
+endfunction
+private function OperationAttackCount takes nothing returns nothing
+    local integer iTemp=1
+    //处于护甲计算之后
+    if Index:PhysicalAttack >.0 then 
+        if Index:PhysicalArmor >=.0 then
+            set Index:PhysicalDamage=Index:PhysicalDamage+Index:PhysicalAttack*( 1.0-ArmorResist*Index:PhysicalArmor /(ArmorResist*Index:PhysicalArmor +1.0) )
+        else
+            set Index:PhysicalDamage=Index:PhysicalDamage+Index:PhysicalAttack*(2.0-Pow((1.0-ArmorResist),-Index:PhysicalArmor ))
+        endif 
+    endif
+    if Index:ManaAttack >=.0 then 
+        if Index:ManaArmor >=.0 then
+            set Index:ManaDamage=Index:ManaDamage+Index:ManaAttack*( 1.0-ArmorResist*Index:ManaArmor /(ArmorResist*Index:ManaArmor +1.0) )
+        else 
+            set Index:ManaDamage=Index:ManaDamage+Index:ManaAttack*(2.0-Pow((1.0-ArmorResist),-Index:ManaArmor ))
+        endif
+    endif 
+    loop 
+    exitwhen iTemp>Index_AttackCount
+        if IsTriggerEnabled(iTemp:RespondEvents_AttackCount) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_AttackCount)
+        endif
+    set iTemp=iTemp+1
+    endloop
+endfunction
+private function OperationEvadeEvent takes nothing returns nothing
+    local integer iTemp=1
+    //处于闪避事件后触发,优先级极高
+        if Index:PhysicalDamage>.0 then
+            if GetRandomReal(0.0,1.0)<=LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_EVADE_PHYSICAL)then
+                set Index:IsPhysicalEvade=true
+                set Index:PhysicalDamage=.0
+            endif
+        endif
+        if Index:ManaDamage>.0 then
+            if GetRandomReal(0.0,1.0)<=LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_EVADE_MANA)then
+                set Index:IsManaEvade=true
+                set Index:ManaDamage=.0
+            endif
+        endif
+    //触发事件
+    loop 
+    exitwhen iTemp>Index_Evade
+        if IsTriggerEnabled(iTemp:RespondEvents_Evade) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_Evade)
+        endif
+    set iTemp=iTemp+1
+    endloop
+endfunction
+private function OperationViolenceEvent takes nothing returns nothing
+    local integer iTemp=1
+    //处于暴力事件后触发,只对攻击伤害生效
+        if Index:PhysicalDamage>.0 then
+            if GetRandomReal(0.0,1.0)<=LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_CRITICAL_PHYSICAL_CHANCE) then
+                set Index:IsPhysicalCTS=true
+                set Index:PhysicalDamage=Index:PhysicalDamage*(Critical_Origin+LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_CRITICAL_PHYSICAL_TIMES))
+            endif
+        endif
+        if Index:ManaDamage>.0 then
+            if GetRandomReal(0.0,1.0)<=LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_CRITICAL_MANA_CHANCE) then
+                set Index:IsManaCTS=true
+                set Index:ManaDamage=Index:ManaDamage*(Critical_Origin+LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_CRITICAL_MANA_TIMES))
+            endif
+        endif
+        /*if GetRandomReal(0.0,1.0)<=LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_THUMP_CHANCE) then
+            set Index:IsThump=true
+            set Index:ManaDamage=Index:ManaDamage+Thump_Origin+LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_THUMP_DAMAGE)
+            call Dizzy_Unit(Index:TriggerUnit,Dizzy_Origin+LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_THUMP_DIZZY),false)
+        endif*/
+    //触发事件
+    loop 
+    exitwhen iTemp>Index_Violence
+        if IsTriggerEnabled(iTemp:RespondEvents_Violence) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_Violence)
+        endif
+    set iTemp=iTemp+1
+    endloop
+endfunction
+private function OperationPhysicalResistEvent takes nothing returns nothing
+    local integer iTemp=1
+        set Index:PhysicalDamage=Index:PhysicalDamage-LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_RESIST_REAL)
+        if Index:PhysicalDamage>.0 then
+            set Index:PhysicalDamage=Index:PhysicalDamage-LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_RESIST_PHYSICAL_VALUE)
+            if Index:PhysicalDamage>.0 then
+                set Index:PhysicalDamage=Index:PhysicalDamage*(1.0-LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_RESIST_PHYSICAL_PERCENT))
+                if Index:PhysicalDamage>.0 and IsUnitHaveArmor(Index:TriggerUnit) then
+                    set Index:PhysicalDamage=DamageToArmor(Index:DamageSource,Index:TriggerUnit,1,Index:PhysicalDamage)
+                elseif Index:PhysicalDamage<.0 then
+                    set Index:PhysicalDamage=.0
+                endif
+            elseif Index:PhysicalDamage<.0 then
+                set Index:PhysicalDamage=.0
+            endif
+        elseif Index:PhysicalDamage<.0 then
+            set Index:PhysicalDamage=.0
+        endif
+    //处于物理格挡后触发
+    loop 
+    exitwhen iTemp>Index_PhysicalResist
+        if IsTriggerEnabled(iTemp:RespondEvents_PhysicalResist) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_PhysicalResist)
+        endif
+    set iTemp=iTemp+1
+    endloop
+endfunction
+private function OperationManaResistEvent takes nothing returns nothing
+    local integer iTemp=1
+        set Index:ManaDamage=Index:ManaDamage-LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_RESIST_REAL)
+        if Index:ManaDamage>.0 then
+            set Index:ManaDamage=Index:ManaDamage-LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_RESIST_MANA_VALUE)
+            if Index:ManaDamage>.0 then
+                set Index:ManaDamage=Index:ManaDamage*(1.0-LoadReal(HT_Damage,Index:TriggerUnitId,ATTRIBUTE_RESIST_MANA_PERCENT))
+                if Index:ManaDamage>.0 then
+                    set Index:ManaDamage=DamageToArmor(Index:DamageSource,Index:TriggerUnit,2,Index:ManaDamage)
+                elseif Index:ManaDamage<.0 then
+                    set Index:ManaDamage=.0
+                endif
+            elseif Index:ManaDamage>.0 then
+                set Index:ManaDamage=.0
+            endif
+        elseif Index:ManaDamage<.0 then
+            set Index:ManaDamage=.0
+        endif
+    //处于魔法格挡后触发
+    loop 
+    exitwhen iTemp>Index_ManaResist
+        if IsTriggerEnabled(iTemp:RespondEvents_ManaResist) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_ManaResist)
+        endif
+    set iTemp=iTemp+1
+    endloop
+endfunction
+private function OperationSuckEvent takes nothing returns nothing
+    local integer iTemp=1
+    local real PhysicalSuck=LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_SUCK_PHYSICIAL)
+    local real ManaSuck=LoadReal(HT_Damage,Index:DamageSourceId,ATTRIBUTE_SUCK_MANA)
+    //计算吸血数值
+        set Index:SuckValue=Index:SuckValue+(Index:PhysicalDamage+Index:RealDamage)*PhysicalSuck
+        set Index:SuckValue=Index:SuckValue+(Index:ManaDamage+Index:RealDamage)*ManaSuck
+    //处于吸血前触发*************特殊,前置触发,但在计算吸血数值前获得吸血数值后
+    loop 
+    exitwhen iTemp>Index_Suck
+        if IsTriggerEnabled(iTemp:RespondEvents_Suck) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_Suck)
+        endif
+    set iTemp=iTemp+1
+    endloop
+    //吸血工作
+        call SetUnitState(Index:DamageSource,UNIT_STATE_LIFE,GetUnitState(Index:DamageSource,UNIT_STATE_LIFE)+Index:SuckValue)
+endfunction
+private function OperationEndEvent takes nothing returns nothing
+    local integer iTemp=1
+        call DisableTrigger(InitialTrigger)
+        if IsUnitType(Index:TriggerUnit, UNIT_TYPE_MAGIC_IMMUNE) then
+            call UnitDamageTarget(Index:DamageSource,Index:TriggerUnit,/*
+                              */Index:RealDamage+Index:PhysicalDamage,/*
+                              */Index:IsAttack,Index:IsFar, ATTACK_TYPE_CHAOS, DAMAGE_TYPE_UNIVERSAL, WEAPON_TYPE_WHOKNOWS)
+        else
+            call UnitDamageTarget(Index:DamageSource,Index:TriggerUnit,/*
+                              */Index:RealDamage+Index:PhysicalDamage+Index:ManaDamage,/*
+                              */Index:IsAttack,Index:IsFar, ATTACK_TYPE_CHAOS, DAMAGE_TYPE_UNIVERSAL, WEAPON_TYPE_WHOKNOWS)
+        endif
+        call EnableTrigger(InitialTrigger)
+    //处于伤害造成完毕后触发,利于暴击或者闪避等漂浮文字的准确性
+    loop 
+    exitwhen iTemp>Index_End
+        if IsTriggerEnabled(iTemp:RespondEvents_End) then
+            call ConditionalTriggerExecute(iTemp:RespondEvents_End)
+        endif
+    set iTemp=iTemp+1
+    endloop
+    set Index=Index-1  //退位
+endfunction
+
+//伤害目标
+function DamageTarget takes unit source,unit target,real damage,boolean isattack,boolean isfar,integer DamageType,integer sign returns nothing
+    set Index=Index+1
+    set Index:Sign=sign
+    set Index:DamageSource=source
+    set Index:DamageSourceId=GetHandleId(source)
+    set Index:TriggerUnit=target
+    set Index:TriggerUnitId=GetHandleId(target)
+    set Index:IsAttack=isattack
+    set Index:IsFar=isfar
+    set Index:IsPhysicalEvade=false
+    set Index:IsManaEvade=false
+    set Index:IsPhysicalCTS=false
+    set Index:IsManaCTS=false
+    set Index:IsThump=false 
+    set Index:RealDamage=.0
+    set Index:PhysicalAttack=.0
+    set Index:ManaAttack=.0
+    set Index:RealDamage=.0
+    set Index:PhysicalAttack=.0
+    set Index:ManaAttack=.0
+    //护甲
+    set Index:PhysicalArmor=GetUnitState(target, ConvertUnitState(0x20))
+    set Index:ManaArmor=.0
+    if YDWEGetObjectPropertyString(YDWE_OBJECT_TYPE_UNIT, GetUnitTypeId(target),"defType")=="divine" then 
+        set Index:ManaArmor=Index:PhysicalArmor 
+    endif 
+    //伤害
+    if DamageType==0 then
+        set Index:RealDamage=damage
+        set Index:PhysicalAttack=.0
+        set Index:ManaAttack=.0
+    elseif DamageType==1 then
+        set Index:RealDamage=.0
+        set Index:PhysicalAttack=damage
+        set Index:ManaAttack=.0
+    elseif DamageType==2 then
+        set Index:RealDamage=.0
+        set Index:PhysicalAttack=.0
+        set Index:ManaAttack=damage
+    endif
+    if YDWEGetObjectPropertyString(YDWE_OBJECT_TYPE_UNIT, GetUnitTypeId(source),"atkType1")=="spells" then
+        set Index:PhysicalAttack=.0
+        set Index:ManaAttack=damage
+    elseif  YDWEGetObjectPropertyString(YDWE_OBJECT_TYPE_UNIT, GetUnitTypeId(source),"atkType1")=="siege" then 
+        set Index:PhysicalAttack=Index:PhysicalAttack*3.0 
+    elseif  YDWEGetObjectPropertyString(YDWE_OBJECT_TYPE_UNIT, GetUnitTypeId(source),"atkType1")=="chaos" then 
+        if DamageType==1 then 
+            set Index:ManaAttack=damage 
+        elseif DamageType==2 then 
+            set Index:PhysicalAttack=damage 
+        endif 
+    endif
+    set Index:PhysicalDamage=.0
+    set Index:ManaDamage=.0
+    set Index:SuckValue=.0
+    //事件响应
+    call OperationBasicalEvent()          //基本事件响应
+    call OperationAttackCount()           //护甲计算
+    call OperationEvadeEvent()            //闪避事件响应[物闪,魔闪]
+                                          //魔闪只会免疫伤害,但无法免疫其作用
+    if Index:IsAttack then
+        call OperationViolenceEvent()         //暴力事件响应[物,魔暴击,重击]
+    //暴力事件只会对是攻击伤害的伤害响应,重击附加伤害为魔法伤害
+    endif
+    if Index:PhysicalDamage>.0 then
+        call OperationPhysicalResistEvent()   //物理抵抗事件响应[真实抵抗,固定格挡,百分比格挡]
+    endif
+    if Index:ManaDamage>.0 then
+        call OperationManaResistEvent()       //魔法抵抗事件响应[真实抵抗,固定格挡,百分比格挡]
+    endif
+    //真实抵抗无法抵抗真实伤害,只是同时会对物理与魔法伤害产生作用
+    if Index:PhysicalDamage>.0 or Index:ManaDamage>.0 or Index:RealDamage>.0 then
+        call OperationSuckEvent()             //吸血事件响应[物理吸血,魔法吸血,(真实伤害的吸血会得到两者的同时加成)]
+    endif
+    call OperationEndEvent()              //伤害处理结束事件响应
+endfunction
+
+
+
+private function InitialEventActions takes nothing returns nothing//处理魔兽伤害
+local real physicalattak=GetRandomReal(GetUnitState(GetEventDamageSource(), ConvertUnitState(0x14)),/*
+                                       */GetUnitState(GetEventDamageSource(), ConvertUnitState(0x15)))
+    call DisableTrigger(GetTriggeringTrigger())
+    if YDWEIsEventPhysicalDamage() or YDWEIsEventAttackDamage() then
+        call DamageTarget(GetEventDamageSource(),GetTriggerUnit(),physicalattak,/*
+                     */YDWEIsEventAttackDamage(),YDWEIsEventRangedDamage(),1,0)
+    else
+        call DamageTarget(GetEventDamageSource(),GetTriggerUnit(),GetEventDamage(),/*
+                     */YDWEIsEventAttackDamage(),YDWEIsEventRangedDamage(),2,0)
+    endif
+    call YDWESetEventDamage(0.0)
+    call EnableTrigger(GetTriggeringTrigger())
+endfunction
+
+private function UnitFirstEnterRegion takes nothing returns nothing
+    if IsUnitInGroup(GetTriggerUnit(),RecordFirst)!=true then
+        call GroupAddUnit(RecordFirst,GetTriggerUnit())
+        call TriggerRegisterUnitEvent(InitialTrigger,GetTriggerUnit(),EVENT_UNIT_DAMAGED)
+    endif
+endfunction
+private function UnitHadInRegionActions takes nothing returns nothing
+    if IsUnitInGroup(GetEnumUnit(),RecordFirst)!=true then
+        call GroupAddUnit(RecordFirst,GetEnumUnit())
+        call TriggerRegisterUnitEvent(InitialTrigger,GetEnumUnit(),EVENT_UNIT_DAMAGED)
+    endif
+endfunction
+private function UnitHadInRegion takes nothing returns nothing
+    local group g=GetUnitsInRectMatching(bj_mapInitialPlayableArea,null)
+        call ForGroup(g,function UnitHadInRegionActions)
+        call DestroyGroup(g)
+    set g=null
+endfunction
+
+private function Init takes nothing returns nothing
+    local trigger trig=CreateTrigger()
+        call TriggerRegisterEnterRectSimple(trig,bj_mapInitialPlayableArea)
+        call TriggerAddAction(trig,function UnitFirstEnterRegion)
+        set trig=CreateTrigger()
+        call TriggerRegisterTimerEvent(trig,.0,false)
+        call TriggerAddAction(trig,function UnitHadInRegion)
+
+        set InitialTrigger=CreateTrigger()
+        call TriggerAddAction(InitialTrigger,function InitialEventActions)
+    set trig=null
+endfunction
+endlibrary
